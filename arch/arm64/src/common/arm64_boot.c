@@ -30,11 +30,26 @@
 #include "arm64_internal.h"
 #include "arm64_arch.h"
 
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
+
 extern void *_vector_table[];
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+#ifdef CONFIG_ARCH_HAVE_EL3
+
+/* Some ARM aarch64 Cortex-family processors have not EL3
+ * these two function should never called
+ * defined to available compile error when with gcc option
+ */
 
 void arm64_boot_el3_init(void)
 {
@@ -87,6 +102,7 @@ void arm64_boot_el3_get_next_el(uint64_t switch_addr)
 
   write_sysreg(spsr, spsr_el3);
 }
+#endif
 
 void arm64_boot_el2_init(void)
 {
@@ -120,6 +136,11 @@ void arm64_boot_el2_init(void)
   zero_sysreg(cnthps_ctl_el2);
 #else
   zero_sysreg(cnthp_ctl_el2);
+#endif
+
+#ifdef CONFIG_ARCH_SET_VMPIDR_EL2
+  reg = read_sysreg(mpidr_el1);
+  write_sysreg(reg, vmpidr_el2);
 #endif
 
   /* Enable this if/when we use the hypervisor timer.
@@ -161,24 +182,9 @@ void arm64_boot_el1_init(void)
   ARM64_ISB();
 }
 
-/* These simple memset alternatives are necessary
- * as the function at libc is depend on the MMU
- * to be active.
- */
-
-static void boot_early_memset(void *dst, int c, size_t n)
-{
-  uint8_t *d = dst;
-
-  while (n--)
-    {
-      *d++ = c;
-    }
-}
-
 void arm64_boot_primary_c_routine(void)
 {
-  boot_early_memset(_START_BSS, 0, _END_BSS - _START_BSS);
   arm64_chip_boot();
+  up_perf_init(NULL);
   nx_start();
 }

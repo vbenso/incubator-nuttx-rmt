@@ -149,7 +149,7 @@ static int     part_procfs_stat(FAR const char *relpath,
 #if defined(CONFIG_FS_PROCFS) && !defined(CONFIG_PROCFS_EXCLUDE_PARTITIONS)
 static struct mtd_partition_s *g_pfirstpartition = NULL;
 
-const struct procfs_operations part_procfsoperations =
+const struct procfs_operations g_part_operations =
 {
   part_procfs_open,       /* open */
   part_procfs_close,      /* close */
@@ -403,6 +403,8 @@ static int part_ioctl(FAR struct mtd_dev_s *dev, int cmd, unsigned long arg)
           FAR struct mtd_geometry_s *geo = (FAR struct mtd_geometry_s *)arg;
           if (geo)
             {
+              memset(geo, 0, sizeof(*geo));
+
               /* Populate the geometry structure with information needed to
                * know the capacity and how to access the device.
                */
@@ -464,6 +466,19 @@ static int part_ioctl(FAR struct mtd_dev_s *dev, int cmd, unsigned long arg)
           ret = priv->parent->erase(priv->parent,
                                     priv->firstblock / priv->blkpererase,
                                     priv->neraseblocks);
+        }
+        break;
+
+      case MTDIOC_ERASESECTORS:
+        {
+          /* Erase sectors as defined in mtd_erase_s structure */
+
+          FAR struct mtd_erase_s *erase = (FAR struct mtd_erase_s *)arg;
+
+          ret = priv->parent->erase(priv->parent,
+                                    priv->firstblock / priv->blkpererase +
+                                    erase->startblock,
+                                    erase->nblocks);
         }
         break;
 
@@ -853,7 +868,7 @@ FAR struct mtd_dev_s *mtd_partition(FAR struct mtd_dev_s *mtd,
   part->blkpererase  = blkpererase;
 
 #ifdef CONFIG_MTD_PARTITION_NAMES
-  strcpy(part->name, "(noname)");
+  strlcpy(part->name, "(noname)", sizeof(part->name));
 #endif
 
 #if defined(CONFIG_FS_PROCFS) && !defined(CONFIG_PROCFS_EXCLUDE_PARTITIONS)

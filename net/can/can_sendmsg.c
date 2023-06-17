@@ -58,7 +58,6 @@
 
 struct send_s
 {
-  FAR struct socket      *snd_sock;    /* Points to the parent socket structure */
   FAR struct devif_callback_s *snd_cb; /* Reference to callback instance */
   sem_t                   snd_sem;     /* Used to wake up the waiting thread */
   FAR const uint8_t      *snd_buffer;  /* Points to the buffer of data to send */
@@ -107,7 +106,15 @@ static uint16_t psock_send_eventhandler(FAR struct net_driver_s *dev,
         {
           /* Copy the packet data into the device packet buffer and send it */
 
-          devif_can_send(dev, pstate->snd_buffer, pstate->snd_buflen);
+          int ret = devif_send(dev, pstate->snd_buffer,
+                               pstate->snd_buflen, 0);
+          dev->d_len = dev->d_sndlen;
+          if (ret <= 0)
+            {
+              pstate->snd_sent = ret;
+              goto end_wait;
+            }
+
           pstate->snd_sent = pstate->snd_buflen;
           if (pstate->pr_msglen > 0) /* concat cmsg data after packet */
             {
@@ -117,11 +124,13 @@ static uint16_t psock_send_eventhandler(FAR struct net_driver_s *dev,
             }
         }
 
+end_wait:
+
       /* Don't allow any further call backs. */
 
-      pstate->snd_cb->flags    = 0;
-      pstate->snd_cb->priv     = NULL;
-      pstate->snd_cb->event    = NULL;
+      pstate->snd_cb->flags = 0;
+      pstate->snd_cb->priv  = NULL;
+      pstate->snd_cb->event = NULL;
 
       /* Wake up the waiting thread */
 
@@ -180,7 +189,7 @@ ssize_t can_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
       return -EDESTADDRREQ;
     }
 
-  conn = (FAR struct can_conn_s *)psock->s_conn;
+  conn = psock->s_conn;
 
   /* Get the device driver that will service this transfer */
 
@@ -216,17 +225,10 @@ ssize_t can_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
 
   net_lock();
   memset(&state, 0, sizeof(struct send_s));
-
-  /* This semaphore is used for signaling and, hence, should not have
-   * priority inheritance enabled.
-   */
-
   nxsem_init(&state.snd_sem, 0, 0); /* Doesn't really fail */
-  nxsem_set_protocol(&state.snd_sem, SEM_PRIO_NONE);
 
-  state.snd_sock      = psock;                  /* Socket descriptor */
-  state.snd_buflen    = msg->msg_iov->iov_len;  /* bytes to send */
-  state.snd_buffer    = msg->msg_iov->iov_base; /* Buffer to send from */
+  state.snd_buflen = msg->msg_iov->iov_len;  /* bytes to send */
+  state.snd_buffer = msg->msg_iov->iov_base; /* Buffer to send from */
 
 #ifdef CONFIG_NET_CAN_RAW_TX_DEADLINE
   if (msg->msg_controllen > sizeof(struct cmsghdr))
@@ -236,8 +238,8 @@ ssize_t can_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
               && cmsg->cmsg_type == CAN_RAW_TX_DEADLINE
               && cmsg->cmsg_len == sizeof(struct timeval))
         {
-          state.pr_msgbuf     = CMSG_DATA(cmsg); /* Buffer to cmsg data */
-          state.pr_msglen     = cmsg->cmsg_len;  /* len of cmsg data */
+          state.pr_msgbuf = CMSG_DATA(cmsg); /* Buffer to cmsg data */
+          state.pr_msglen = cmsg->cmsg_len;  /* len of cmsg data */
         }
     }
 #endif
@@ -258,16 +260,16 @@ ssize_t can_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
       netdev_txnotify_dev(dev);
 
       /* Wait for the send to complete or an error to occur.
-       * net_timedwait will also terminate if a signal is received.
+       * net_sem_timedwait will also terminate if a signal is received.
        */
 
       if (_SS_ISNONBLOCK(conn->sconn.s_flags) || (flags & MSG_DONTWAIT) != 0)
         {
-          ret = net_timedwait(&state.snd_sem, 0);
+          ret = net_sem_timedwait(&state.snd_sem, 0);
         }
       else
         {
-          ret = net_timedwait(&state.snd_sem, UINT_MAX);
+          ret = net_sem_timedwait(&state.snd_sem, UINT_MAX);
         }
 
       /* Make sure that no further events are processed */
@@ -287,8 +289,8 @@ ssize_t can_sendmsg(FAR struct socket *psock, FAR struct msghdr *msg,
       return state.snd_sent;
     }
 
-  /* If net_lockedwait failed, then we were probably reawakened by a signal.
-   * In this case, net_lockedwait will have returned negated errno
+  /* If net_sem_wait failed, then we were probably reawakened by a signal.
+   * In this case, net_sem_wait will have returned negated errno
    * appropriately.
    */
 

@@ -128,7 +128,7 @@ struct route_info_s
 /* Helpers */
 
 static void    route_sprintf(FAR struct route_info_s *info,
-                 FAR const char *fmt, ...) printflike(2, 3);
+                 FAR const char *fmt, ...) printf_like(2, 3);
 #ifdef CONFIG_NET_IPv4
 static int     route_ipv4_entry(FAR struct net_route_ipv4_s *route,
                  FAR void *arg);
@@ -175,7 +175,7 @@ static int     route_stat(FAR const char *relpath, FAR struct stat *buf);
  * with any compiler.
  */
 
-const struct procfs_operations net_procfs_routeoperations =
+const struct procfs_operations g_netroute_operations =
 {
   route_open,          /* open */
   route_close,         /* close */

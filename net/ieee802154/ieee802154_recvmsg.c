@@ -225,7 +225,7 @@ static uint16_t
 
   /* Make sure that this is the driver to which the socket is bound. */
 
-#warning Missing logic
+  /* #warning Missing logic */
 
   pstate = pvpriv;
   radio  = (FAR struct radio_driver_s *)dev;
@@ -308,8 +308,7 @@ ssize_t ieee802154_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
   size_t len = msg->msg_iov->iov_len;
   FAR struct sockaddr *from = msg->msg_name;
   FAR socklen_t *fromlen = &msg->msg_namelen;
-  FAR struct ieee802154_conn_s *conn =
-    (FAR struct ieee802154_conn_s *)psock->s_conn;
+  FAR struct ieee802154_conn_s *conn = psock->s_conn;
   FAR struct radio_driver_s *radio;
   struct ieee802154_recvfrom_s state;
   ssize_t ret;
@@ -365,12 +364,7 @@ ssize_t ieee802154_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
       return ret;
     }
 
-  /* We will have to wait.  This semaphore is used for signaling and,
-   * hence, should not have priority inheritance enabled.
-   */
-
   nxsem_init(&state.ir_sem, 0, 0); /* Doesn't really fail */
-  nxsem_set_protocol(&state.ir_sem, SEM_PRIO_NONE);
 
   /* Set up the callback in the connection */
 
@@ -382,12 +376,12 @@ ssize_t ieee802154_recvmsg(FAR struct socket *psock, FAR struct msghdr *msg,
       state.ir_cb->event  = ieee802154_recvfrom_eventhandler;
 
       /* Wait for either the receive to complete or for an error/timeout to
-       * occur. NOTES:  (1) net_lockedwait will also terminate if a signal
+       * occur. NOTES:  (1) net_sem_wait will also terminate if a signal
        * is received, (2) the network is locked!  It will be un-locked while
        * the task sleeps and automatically re-locked when the task restarts.
        */
 
-      net_lockedwait(&state.ir_sem);
+      net_sem_wait(&state.ir_sem);
 
       /* Make sure that no further events are processed */
 

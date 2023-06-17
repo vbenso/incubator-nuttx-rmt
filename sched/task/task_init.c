@@ -27,11 +27,11 @@
 #include <sys/types.h>
 #include <stdint.h>
 #include <sched.h>
-#include <queue.h>
 #include <assert.h>
 #include <errno.h>
 
 #include <nuttx/arch.h>
+#include <nuttx/queue.h>
 #include <nuttx/sched.h>
 
 #include "sched/sched.h"
@@ -94,6 +94,15 @@ int nxtask_init(FAR struct task_tcb_s *tcb, const char *name, int priority,
   /* Only tasks and kernel threads can be initialized in this way */
 
   DEBUGASSERT(tcb && ttype != TCB_FLAG_TTYPE_PTHREAD);
+#endif
+
+#ifdef CONFIG_ARCH_ADDRENV
+  /* Kernel threads do not own any address environment */
+
+  if ((ttype & TCB_FLAG_TTYPE_MASK) == TCB_FLAG_TTYPE_KERNEL)
+    {
+      tcb->cmn.addrenv_own = NULL;
+    }
 #endif
 
   /* Create a new task group */
@@ -190,6 +199,7 @@ errout_with_group:
     }
 
   group_leave(&tcb->cmn);
+
   return ret;
 }
 

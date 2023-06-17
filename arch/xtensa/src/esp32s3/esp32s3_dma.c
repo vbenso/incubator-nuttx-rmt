@@ -24,6 +24,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <stdint.h>
 #include <string.h>
@@ -33,6 +34,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/irq.h>
 #include <nuttx/kmalloc.h>
+#include <nuttx/mutex.h>
 #include <arch/irq.h>
 
 #include "xtensa.h"
@@ -54,10 +56,6 @@
 #define SET_BITS(_r, _ch, _b)   modifyreg32((_r) + (_ch) * REG_OFF, 0, (_b))
 #define CLR_BITS(_r, _ch, _b)   modifyreg32((_r) + (_ch) * REG_OFF, (_b), 0)
 
-#ifndef MIN
-#  define MIN(a, b) (((a) < (b)) ? (a) : (b))
-#endif
-
 #ifndef ALIGN_UP
 #  define ALIGN_UP(num, align) (((num) + ((align) - 1)) & ~((align) - 1))
 #endif
@@ -66,8 +64,9 @@
  * Private Data
  ****************************************************************************/
 
-static bool  g_dma_chan_used[ESP32S3_DMA_CHAN_MAX];
-static sem_t g_dma_exc_sem = SEM_INITIALIZER(1);
+static bool    g_dma_chan_used[ESP32S3_DMA_CHAN_MAX];
+static mutex_t g_dma_lock = NXMUTEX_INITIALIZER;
+static int g_dma_ref;
 
 /****************************************************************************
  * Public Functions
@@ -105,7 +104,7 @@ int32_t esp32s3_dma_request(enum esp32s3_dma_periph_e periph,
   dmainfo("periph=%" PRIu32 " tx_prio=%" PRIu32 " rx_prio=%" PRIu32 "\n",
           (uint32_t)periph, tx_prio, rx_prio);
 
-  nxsem_wait_uninterruptible(&g_dma_exc_sem);
+  nxmutex_lock(&g_dma_lock);
 
   for (chan = 0; chan < ESP32S3_DMA_CHAN_MAX; chan++)
     {
@@ -120,8 +119,7 @@ int32_t esp32s3_dma_request(enum esp32s3_dma_periph_e periph,
     {
       dmaerr("No available GDMA channel for allocation\n");
 
-      nxsem_post(&g_dma_exc_sem);
-
+      nxmutex_unlock(&g_dma_lock);
       return ERROR;
     }
 
@@ -168,8 +166,7 @@ int32_t esp32s3_dma_request(enum esp32s3_dma_periph_e periph,
   SET_REG(DMA_OUT_PRI_CH0_REG, chan, tx_prio);
   SET_REG(DMA_IN_PRI_CH0_REG, chan, rx_prio);
 
-  nxsem_post(&g_dma_exc_sem);
-
+  nxmutex_unlock(&g_dma_lock);
   return chan;
 }
 
@@ -372,9 +369,18 @@ void esp32s3_dma_wait_idle(int chan, bool tx)
 
 void esp32s3_dma_init(void)
 {
-  modifyreg32(SYSTEM_PERIP_CLK_EN1_REG, 0, SYSTEM_DMA_CLK_EN_M);
-  modifyreg32(SYSTEM_PERIP_RST_EN1_REG, SYSTEM_DMA_RST_M, 0);
+  nxmutex_lock(&g_dma_lock);
 
-  modifyreg32(DMA_MISC_CONF_REG, 0, DMA_CLK_EN_M);
+  if (!g_dma_ref)
+    {
+      modifyreg32(SYSTEM_PERIP_CLK_EN1_REG, 0, SYSTEM_DMA_CLK_EN_M);
+      modifyreg32(SYSTEM_PERIP_RST_EN1_REG, SYSTEM_DMA_RST_M, 0);
+
+      modifyreg32(DMA_MISC_CONF_REG, 0, DMA_CLK_EN_M);
+    }
+
+  g_dma_ref++;
+
+  nxmutex_unlock(&g_dma_lock);
 }
 

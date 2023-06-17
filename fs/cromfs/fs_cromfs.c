@@ -176,7 +176,7 @@ static int      cromfs_stat(FAR struct inode *mountpt,
  * with any compiler.
  */
 
-const struct mountpt_operations cromfs_operations =
+const struct mountpt_operations g_cromfs_operations =
 {
   cromfs_open,       /* open */
   cromfs_close,      /* close */
@@ -184,12 +184,13 @@ const struct mountpt_operations cromfs_operations =
   NULL,              /* write */
   NULL,              /* seek */
   cromfs_ioctl,      /* ioctl */
+  NULL,              /* mmap */
+  NULL,              /* truncate */
 
   NULL,              /* sync */
   cromfs_dup,        /* dup */
   cromfs_fstat,      /* fstat */
   NULL,              /* fchstat */
-  NULL,              /* truncate */
 
   cromfs_opendir,    /* opendir */
   cromfs_closedir,   /* closedir */
@@ -1152,7 +1153,7 @@ static int cromfs_fstat(FAR const struct file *filep, FAR struct stat *buf)
 
   /* Sanity checks */
 
-  DEBUGASSERT(filep->f_priv == NULL && filep->f_inode != NULL);
+  DEBUGASSERT(filep->f_priv != NULL && filep->f_inode != NULL);
 
   /* Get the mountpoint inode reference from the file structure and the
    * volume private data from the inode structure
@@ -1466,7 +1467,6 @@ static int cromfs_statfs(struct inode *mountpt, struct statfs *buf)
 
   /* Fill in the statfs info. */
 
-  memset(buf, 0, sizeof(struct statfs));
   buf->f_type    = CROMFS_MAGIC;
   buf->f_namelen = NAME_MAX;
   buf->f_bsize   = fs->cv_bsize;

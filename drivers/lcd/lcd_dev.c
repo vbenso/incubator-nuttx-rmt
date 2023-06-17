@@ -66,7 +66,7 @@ static int lcddev_ioctl(FAR struct file *filep, int cmd,
  * Private Data
  ****************************************************************************/
 
-static const struct file_operations lcddev_fops =
+static const struct file_operations g_lcddev_fops =
 {
   NULL,         /* open */
   NULL,         /* close */
@@ -74,10 +74,6 @@ static const struct file_operations lcddev_fops =
   NULL,         /* write */
   NULL,         /* seek */
   lcddev_ioctl, /* ioctl */
-  NULL          /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL        /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -145,7 +141,7 @@ static int lcddev_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
               {
                 ret = priv->planeinfo.getrun(priv->lcd_ptr, row,
                                              lcd_area->col_start, buf,
-                                             row_size);
+                                             cols);
                 if (ret < 0)
                   {
                     break;
@@ -184,7 +180,7 @@ static int lcddev_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
               {
                 ret = priv->planeinfo.putrun(priv->lcd_ptr, row,
                                              lcd_area->col_start, buf,
-                                             row_size);
+                                             cols);
                 if (ret < 0)
                   {
                     break;
@@ -326,7 +322,7 @@ int lcddev_register(int devno)
     }
 
   snprintf(devname, sizeof(devname), "/dev/lcd%i", devno);
-  ret = register_driver(devname, &lcddev_fops, 0666, priv);
+  ret = register_driver(devname, &g_lcddev_fops, 0666, priv);
   if (ret < 0)
     {
       goto err;

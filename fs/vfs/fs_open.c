@@ -47,6 +47,29 @@
  * Name: file_vopen
  ****************************************************************************/
 
+/****************************************************************************
+ * Name: file_vopen
+ *
+ * Description:
+ *   file_vopen() is similar to the standard 'open' interface except that it
+ *   populates an instance of 'struct file' rather than return a file
+ *   descriptor.  It also is not a cancellation point and does not modify
+ *   the errno variable.
+ *
+ * Input Parameters:
+ *   filep  - The caller provided location in which to return the 'struct
+ *            file' instance.
+ *   path   - The full path to the file to be opened.
+ *   oflags - open flags.
+ *   umask  - File mode creation mask. Overrides the open flags.
+ *   ap     - Variable argument list, may include 'mode_t mode'
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success.  On failure, a negated errno value is
+ *   returned.
+ *
+ ****************************************************************************/
+
 static int file_vopen(FAR struct file *filep, FAR const char *path,
                       int oflags, mode_t umask, va_list ap)
 {
@@ -76,7 +99,7 @@ static int file_vopen(FAR struct file *filep, FAR const char *path,
 
   /* Get an inode for this file */
 
-  SETUP_SEARCH(&desc, path, false);
+  SETUP_SEARCH(&desc, path, (oflags & O_NOFOLLOW) != 0);
 
   ret = inode_find(&desc);
   if (ret < 0)
@@ -93,6 +116,11 @@ static int file_vopen(FAR struct file *filep, FAR const char *path,
 
   inode = desc.node;
   DEBUGASSERT(inode != NULL);
+
+  if (desc.nofollow && INODE_IS_SOFTLINK(inode))
+    {
+      return -ELOOP;
+    }
 
 #if defined(CONFIG_BCH) && \
     !defined(CONFIG_DISABLE_MOUNTPOINT) && \
@@ -128,13 +156,12 @@ static int file_vopen(FAR struct file *filep, FAR const char *path,
 
   /* Associate the inode with a file structure */
 
+  memset(filep, 0, sizeof(*filep));
   filep->f_oflags = oflags;
-  filep->f_pos    = 0;
   filep->f_inode  = inode;
-  filep->f_priv   = NULL;
 
   /* Perform the driver open operation.  NOTE that the open method may be
-   * called many times.  The driver/mountpoint logic should handled this
+   * called many times.  The driver/mountpoint logic should handle this
    * because it may also be closed that many times.
    */
 
@@ -163,6 +190,11 @@ static int file_vopen(FAR struct file *filep, FAR const char *path,
       ret = -ENXIO;
     }
 
+  if (ret == -EISDIR)
+    {
+      ret = dir_allocate(filep, desc.relpath);
+    }
+
   if (ret < 0)
     {
       goto errout_with_inode;
@@ -182,9 +214,28 @@ errout_with_search:
 
 /****************************************************************************
  * Name: nx_vopen
+ *
+ * Description:
+ *   nx_vopen() is similar to the standard 'open' interface except that it
+ *   is not a cancellation point and it does not modify the errno variable.
+ *
+ *   nx_open() is an internal NuttX interface and should not be called from
+ *   applications.
+ *
+ * Input Parameters:
+ *   tcb    - Address of the task's TCB
+ *   path   - The full path to the file to be opened.
+ *   oflags - open flags.
+ *   ap     - Variable argument list, may include 'mode_t mode'
+ *
+ * Returned Value:
+ *   The new file descriptor is returned on success; a negated errno value is
+ *   returned on any failure.
+ *
  ****************************************************************************/
 
-static int nx_vopen(FAR const char *path, int oflags, va_list ap)
+static int nx_vopen(FAR struct tcb_s *tcb,
+                    FAR const char *path, int oflags, va_list ap)
 {
   struct file filep;
   int ret;
@@ -200,8 +251,8 @@ static int nx_vopen(FAR const char *path, int oflags, va_list ap)
 
   /* Allocate a new file descriptor for the inode */
 
-  fd = files_allocate(filep.f_inode, filep.f_oflags,
-                      filep.f_pos, filep.f_priv, 0);
+  fd = file_allocate_from_tcb(tcb, filep.f_inode, filep.f_oflags,
+                              filep.f_pos, filep.f_priv, 0, false);
   if (fd < 0)
     {
       file_close(&filep);
@@ -220,6 +271,17 @@ static int nx_vopen(FAR const char *path, int oflags, va_list ap)
  *
  * Description:
  *   Check if the access described by 'oflags' is supported on 'inode'
+ *
+ *   inode_checkflags() is an internal NuttX interface and should not be
+ *   called from applications.
+ *
+ * Input Parameters:
+ *   inode  - The inode to check
+ *   oflags - open flags.
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success.  On failure, a negated errno value is
+ *   returned.
  *
  ****************************************************************************/
 
@@ -251,14 +313,15 @@ int inode_checkflags(FAR struct inode *inode, int oflags)
  *
  * Description:
  *   file_open() is similar to the standard 'open' interface except that it
- *   returns an instance of 'struct file' rather than a file descriptor.  It
- *   also is not a cancellation point and does not modify the errno variable.
+ *   populates an instance of 'struct file' rather than return a file
+ *   descriptor.  It also is not a cancellation point and does not modify
+ *   the errno variable.
  *
  * Input Parameters:
  *   filep  - The caller provided location in which to return the 'struct
  *            file' instance.
- *   path   - The full path to the file to be open.
- *   oflags - open flags
+ *   path   - The full path to the file to be opened.
+ *   oflags - open flags.
  *   ...    - Variable number of arguments, may include 'mode_t mode'
  *
  * Returned Value:
@@ -280,14 +343,57 @@ int file_open(FAR struct file *filep, FAR const char *path, int oflags, ...)
 }
 
 /****************************************************************************
+ * Name: nx_open_from_tcb
+ *
+ * Description:
+ *   nx_open_from_tcb() is similar to the standard 'open' interface except
+ *   that it is not a cancellation point and it does not modify the errno
+ *   variable.
+ *
+ *   nx_open_from_tcb() is an internal NuttX interface and should not be
+ *   called from applications.
+ *
+ * Input Parameters:
+ *   tcb    - Address of the task's TCB
+ *   path   - The full path to the file to be opened.
+ *   oflags - open flags.
+ *   ...    - Variable number of arguments, may include 'mode_t mode'
+ *
+ * Returned Value:
+ *   The new file descriptor is returned on success; a negated errno value is
+ *   returned on any failure.
+ *
+ ****************************************************************************/
+
+int nx_open_from_tcb(FAR struct tcb_s *tcb,
+                     FAR const char *path, int oflags, ...)
+{
+  va_list ap;
+  int fd;
+
+  /* Let nx_vopen() do all of the work */
+
+  va_start(ap, oflags);
+  fd = nx_vopen(tcb, path, oflags, ap);
+  va_end(ap);
+
+  return fd;
+}
+
+/****************************************************************************
  * Name: nx_open
  *
  * Description:
- *   nx_open() is similar to the standard 'open' interface except that is is
+ *   nx_open() is similar to the standard 'open' interface except that it is
  *   not a cancellation point and it does not modify the errno variable.
  *
  *   nx_open() is an internal NuttX interface and should not be called from
  *   applications.
+ *
+ * Input Parameters:
+ *   path   - The full path to the file to be opened.
+ *   oflags - open flags.
+ *   ...    - Variable number of arguments, may include 'mode_t mode'
  *
  * Returned Value:
  *   The new file descriptor is returned on success; a negated errno value is
@@ -303,7 +409,7 @@ int nx_open(FAR const char *path, int oflags, ...)
   /* Let nx_vopen() do all of the work */
 
   va_start(ap, oflags);
-  fd = nx_vopen(path, oflags, ap);
+  fd = nx_vopen(nxsched_self(), path, oflags, ap);
   va_end(ap);
 
   return fd;
@@ -317,7 +423,7 @@ int nx_open(FAR const char *path, int oflags, ...)
  *
  * Returned Value:
  *   The new file descriptor is returned on success; -1 (ERROR) is returned
- *   on any failure the errno value set appropriately.
+ *   on any failure with the errno value set appropriately.
  *
  ****************************************************************************/
 
@@ -333,7 +439,7 @@ int open(FAR const char *path, int oflags, ...)
   /* Let nx_vopen() do most of the work */
 
   va_start(ap, oflags);
-  fd = nx_vopen(path, oflags, ap);
+  fd = nx_vopen(nxsched_self(), path, oflags, ap);
   va_end(ap);
 
   /* Set the errno value if any errors were reported by nx_open() */

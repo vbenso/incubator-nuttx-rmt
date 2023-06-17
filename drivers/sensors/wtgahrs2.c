@@ -30,6 +30,8 @@
 #include <nuttx/kthread.h>
 #include <nuttx/kmalloc.h>
 
+#include <sys/param.h>
+
 #include <termios.h>
 #include <math.h>
 #include <fcntl.h>
@@ -39,8 +41,6 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-
-#define WTGAHRS2_ARRAYSIZE(a)      (sizeof((a))/sizeof(a[0]))
 
 #define WTGAHRS2_ACCEL_IDX         0
 #define WTGAHRS2_GYRO_IDX          1
@@ -170,7 +170,7 @@ static int wtgahrs2_set_interval(FAR struct sensor_lowerhalf_s *lower,
   FAR struct wtgahrs2_sensor_s *dev = (FAR struct wtgahrs2_sensor_s *)lower;
   int idx = 0;
 
-  for (; idx < WTGAHRS2_ARRAYSIZE(g_wtgahrs2_interval) - 1; idx++)
+  for (; idx < nitems(g_wtgahrs2_interval) - 1; idx++)
     {
       if (*interval >= g_wtgahrs2_interval[idx])
         {
@@ -433,9 +433,7 @@ int wtgahrs2_initialize(FAR const char *path, int devno)
 {
   FAR struct wtgahrs2_dev_s *rtdata;
   FAR struct wtgahrs2_sensor_s *tmp;
-#ifdef CONFIG_SERIAL_TERMIOS
   struct termios opt;
-#endif
   FAR char *argv[2];
   char arg1[16];
   int ret;
@@ -462,13 +460,15 @@ int wtgahrs2_initialize(FAR const char *path, int devno)
       goto open_err;
     }
 
-#ifdef CONFIG_SERIAL_TERMIOS
   file_ioctl(&rtdata->file, TCGETS, &opt);
   cfmakeraw(&opt);
+
+#ifdef CONFIG_SERIAL_TERMIOS
   cfsetispeed(&opt, B115200);
   cfsetospeed(&opt, B115200);
-  file_ioctl(&rtdata->file, TCSETS, &opt);
 #endif
+
+  file_ioctl(&rtdata->file, TCSETS, &opt);
 
   /* Accelerometer register */
 

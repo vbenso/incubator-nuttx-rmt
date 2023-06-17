@@ -90,7 +90,7 @@ int pthread_cancel(pthread_t thread)
 
   /* Refer to tls_get_info() */
 
-#ifdef CONFIG_PTHREAD_CLEANUP
+#if defined(CONFIG_PTHREAD_CLEANUP_STACKSIZE) && CONFIG_PTHREAD_CLEANUP_STACKSIZE > 0
   pthread_cleanup_popall(tcb->stack_alloc_ptr);
 #endif
 
@@ -100,5 +100,5 @@ int pthread_cancel(pthread_t thread)
 
   /* Then let nxtask_terminate do the real work */
 
-  return nxtask_terminate((pid_t)thread, false);
+  return nxtask_terminate((pid_t)thread);
 }

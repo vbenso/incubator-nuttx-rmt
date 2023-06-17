@@ -58,6 +58,7 @@
 #define IPPROTO_ESP           50   /* Encapsulation Security Payload protocol */
 #define IPPROTO_AH            51   /* Authentication Header protocol */
 #define IPPROTO_ICMP6         58   /* Internal Control Message Protocol v6 */
+#define IPPROTO_ICMPV6        IPPROTO_ICMP6
 #define IPPROTO_NONE          59   /* IPv6 no next header. */
 #define IPPROTO_DSTOPTS       60   /* IPv6 destination options. */
 #define IPPROTO_MTP           92   /* Multicast Transport Protocol.  */
@@ -125,8 +126,14 @@
 #define IPV6_UNICAST_HOPS     (__SO_PROTOCOL + 6)  /* Unicast hop limit */
 #define IPV6_V6ONLY           (__SO_PROTOCOL + 7)  /* Restrict AF_INET6 socket
                                                     * to IPv6 communications only */
-#define IPV6_PKTINFO          (__SO_PROTOCOL + 8)  /* Get some information about
+#define IPV6_PKTINFO          (__SO_PROTOCOL + 8)  /* Information about the
+                                                    * incoming packet */
+#define IPV6_RECVPKTINFO      (__SO_PROTOCOL + 9)  /* Receive the information about
                                                     * the incoming packet */
+#define IPV6_TCLASS           (__SO_PROTOCOL + 10) /* Access the Traffic Class
+                                                    * field */
+#define IPV6_RECVHOPLIMIT     (__SO_PROTOCOL + 11) /* Access the hop limit field */
+#define IPV6_HOPLIMIT         (__SO_PROTOCOL + 12) /* Hop limit */
 
 /* Values used with SIOCSIFMCFILTER and SIOCGIFMCFILTER ioctl's */
 
@@ -190,6 +197,9 @@
 
 #define IN6_IS_ADDR_MULTICAST(a) \
   ((a)->s6_addr[0] == 0xff)
+
+#define IN6_IS_ADDR_LINKLOCAL(a) \
+  ((a)->s6_addr16[0] & HTONS(0xffc0) == HTONS(0xfe80))
 
 #define IN6_IS_ADDR_LOOPBACK(a) \
   ((a)->s6_addr32[0] == 0 && \

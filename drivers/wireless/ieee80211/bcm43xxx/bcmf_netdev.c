@@ -38,7 +38,6 @@
 #include <nuttx/arch.h>
 #include <nuttx/irq.h>
 #include <nuttx/wqueue.h>
-#include <nuttx/net/arp.h>
 #include <nuttx/net/netdev.h>
 #include <nuttx/wireless/wireless.h>
 #include <nuttx/wireless/ieee80211/bcmf_board.h>
@@ -75,9 +74,9 @@
 
 #if defined(CONFIG_SCHED_HPWORK) && \
     (CONFIG_IEEE80211_BROADCOM_SCHED_PRIORITY >= CONFIG_SCHED_HPWORKPRIORITY)
-# define BCMFWORK HPWORK
+#  define BCMFWORK HPWORK
 #else
-# define BCMFWORK LPWORK
+#  define BCMFWORK LPWORK
 #endif
 
 /* CONFIG_IEEE80211_BROADCOM_NINTERFACES determines the number of physical
@@ -85,13 +84,13 @@
  */
 
 #ifndef CONFIG_IEEE80211_BROADCOM_NINTERFACES
-# define CONFIG_IEEE80211_BROADCOM_NINTERFACES 1
+#  define CONFIG_IEEE80211_BROADCOM_NINTERFACES 1
 #endif
 
 #ifdef CONFIG_IEEE80211_BROADCOM_LOWPOWER
-# define LP_IFDOWN_TIMEOUT CONFIG_IEEE80211_BROADCOM_LP_IFDOWN_TIMEOUT
-# define LP_DTIM_TIMEOUT   CONFIG_IEEE80211_BROADCOM_LP_DTIM_TIMEOUT
-# define LP_DTIM_INTERVAL  CONFIG_IEEE80211_BROADCOM_LP_DTIM_INTERVAL
+#  define LP_IFDOWN_TIMEOUT CONFIG_IEEE80211_BROADCOM_LP_IFDOWN_TIMEOUT
+#  define LP_DTIM_TIMEOUT   CONFIG_IEEE80211_BROADCOM_LP_DTIM_TIMEOUT
+#  define LP_DTIM_INTERVAL  CONFIG_IEEE80211_BROADCOM_LP_DTIM_INTERVAL
 #endif
 
 /* This is a helper pointer for accessing the contents of Ethernet header */
@@ -156,7 +155,7 @@ int bcmf_netdev_alloc_tx_frame(FAR struct bcmf_dev_s *priv)
                                                MAX_NETDEV_PKTSIZE, false);
   if (!priv->cur_tx_frame)
     {
-      wlerr("ERROR: Cannot allocate TX frame\n");
+      wlinfo("INFO: Cannot allocate TX frame\n");
       return -ENOMEM;
     }
 
@@ -286,11 +285,8 @@ static void bcmf_receive(FAR struct bcmf_dev_s *priv)
           ninfo("IPv4 frame\n");
           NETDEV_RXIPV4(&priv->bc_dev);
 
-          /* Handle ARP on input then give the IPv4 packet to the network
-           * layer
-           */
+          /* Receive an IPv4 packet from the network device */
 
-          arp_ipin(&priv->bc_dev);
           ipv4_input(&priv->bc_dev);
 
           /* If the above function invocation resulted in data that should be
@@ -299,21 +295,6 @@ static void bcmf_receive(FAR struct bcmf_dev_s *priv)
 
           if (priv->bc_dev.d_len > 0)
             {
-              /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv6
-              if (IFF_IS_IPv4(priv->bc_dev.d_flags))
-#endif
-                {
-                  arp_out(&priv->bc_dev);
-                }
-#ifdef CONFIG_NET_IPv6
-              else
-                {
-                  neighbor_out(&kel->bc_dev);
-                }
-#endif
-
               /* And send the packet */
 
               bcmf_transmit(priv, frame);
@@ -343,21 +324,6 @@ static void bcmf_receive(FAR struct bcmf_dev_s *priv)
 
           if (priv->bc_dev.d_len > 0)
             {
-              /* Update the Ethernet header with the correct MAC address */
-
-#ifdef CONFIG_NET_IPv4
-              if (IFF_IS_IPv4(priv->bc_dev.d_flags))
-                {
-                  arp_out(&priv->bc_dev);
-                }
-              else
-#endif
-#ifdef CONFIG_NET_IPv6
-                {
-                  neighbor_out(&priv->bc_dev);
-                }
-#endif
-
               /* And send the packet */
 
               bcmf_transmit(priv, frame);
@@ -374,7 +340,7 @@ static void bcmf_receive(FAR struct bcmf_dev_s *priv)
 #ifdef CONFIG_NET_ARP
       if (BUF->type == HTONS(ETHTYPE_ARP))
         {
-          arp_arpin(&priv->bc_dev);
+          arp_input(&priv->bc_dev);
           NETDEV_RXARP(&priv->bc_dev);
 
           /* If the above function invocation resulted in data that should be
@@ -436,54 +402,16 @@ static int bcmf_txpoll(FAR struct net_driver_s *dev)
 {
   FAR struct bcmf_dev_s *priv = (FAR struct bcmf_dev_s *)dev->d_private;
 
-  /* If the polling resulted in data that should be sent out on the network,
-   * the field d_len is set to a value > 0.
+  /* Send the packet */
+
+  bcmf_transmit(priv, priv->cur_tx_frame);
+
+  /* TODO: Check if there is room in the device to hold another
+   * packet. If not, return a non-zero value to terminate the poll.
    */
 
-  if (priv->bc_dev.d_len > 0)
-    {
-      /* Look up the destination MAC address and add it to the Ethernet
-       * header.
-       */
-
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-      if (IFF_IS_IPv4(priv->bc_dev.d_flags))
-#endif
-        {
-          arp_out(&priv->bc_dev);
-        }
-#endif /* CONFIG_NET_IPv4 */
-
-#ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
-      else
-#endif
-        {
-          neighbor_out(&priv->bc_dev);
-        }
-#endif /* CONFIG_NET_IPv6 */
-
-      if (!devif_loopback(&priv->bc_dev))
-        {
-          /* Send the packet */
-
-          bcmf_transmit(priv, priv->cur_tx_frame);
-
-          /* TODO: Check if there is room in the device to hold another
-           * packet. If not, return a non-zero value to terminate the poll.
-           */
-
-          priv->cur_tx_frame = NULL;
-          return 1;
-        }
-    }
-
-  /* If zero is returned, the polling will continue until all connections
-   * have been examined.
-   */
-
-  return 0;
+  priv->cur_tx_frame = NULL;
+  return 1;
 }
 
 /****************************************************************************
@@ -702,7 +630,7 @@ static int bcmf_ifup(FAR struct net_driver_s *dev)
       goto errout_in_wl_active;
     }
 
-  if (strnlen(CONFIG_IEEE80211_BROADCOM_DEFAULT_COUNTRY, 2) == 2)
+  if (CONFIG_IEEE80211_BROADCOM_DEFAULT_COUNTRY[0])
     {
       bcmf_wl_set_country_code(priv, CHIP_STA_INTERFACE,
                                CONFIG_IEEE80211_BROADCOM_DEFAULT_COUNTRY);
@@ -730,7 +658,6 @@ errout_in_wl_active:
   bcmf_wl_active(priv, false);
 
 errout_in_critical_section:
-
   leave_critical_section(flags);
 
   wlinfo("bcmf_ifup done: %d\n", ret);

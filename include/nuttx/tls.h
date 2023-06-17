@@ -29,6 +29,7 @@
 
 #include <nuttx/arch.h>
 #include <nuttx/atexit.h>
+#include <nuttx/fs/fs.h>
 
 #include <sys/types.h>
 #include <pthread.h>
@@ -62,6 +63,14 @@
 /****************************************************************************
  * Public Types
  ****************************************************************************/
+
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
 
 /* type tls_ndxset_t & tls_dtor_t *******************************************/
 
@@ -119,7 +128,7 @@ struct getopt_s
 
 struct task_info_s
 {
-  sem_t           ta_sem;
+  mutex_t         ta_lock;
   FAR char      **argv;                         /* Name+start-up parameters     */
 #if CONFIG_TLS_TASK_NELEM > 0
   uintptr_t       ta_telem[CONFIG_TLS_TASK_NELEM]; /* Task local storage elements */
@@ -138,13 +147,16 @@ struct task_info_s
 #if CONFIG_LIBC_MAX_EXITFUNS > 0
   struct atexit_list_s ta_exit; /* Exit functions */
 #endif
+#ifdef CONFIG_FILE_STREAM
+  struct streamlist ta_streamlist; /* Holds C buffered I/O info */
+#endif
 };
 
 /* struct pthread_cleanup_s *************************************************/
 
 /* This structure describes one element of the pthread cleanup stack */
 
-#ifdef CONFIG_PTHREAD_CLEANUP
+#if defined(CONFIG_PTHREAD_CLEANUP_STACKSIZE) && CONFIG_PTHREAD_CLEANUP_STACKSIZE > 0
 struct pthread_cleanup_s
 {
   pthread_cleanup_t pc_cleaner;     /* Cleanup callback address */
@@ -194,7 +206,7 @@ struct tls_info_s
   uintptr_t tl_elem[CONFIG_TLS_NELEM]; /* TLS elements */
 #endif
 
-#ifdef CONFIG_PTHREAD_CLEANUP
+#if defined(CONFIG_PTHREAD_CLEANUP_STACKSIZE) && CONFIG_PTHREAD_CLEANUP_STACKSIZE > 0
   /* tos   - The index to the next available entry at the top of the stack.
    * stack - The pre-allocated clean-up stack memory.
    */
@@ -344,5 +356,10 @@ void tls_destruct(void);
  ****************************************************************************/
 
 FAR struct task_info_s *task_get_info(void);
+
+#undef EXTERN
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* __INCLUDE_NUTTX_TLS_H */

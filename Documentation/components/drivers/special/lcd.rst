@@ -1,6 +1,6 @@
-====================
+=====================
 LCD Character Drivers
-====================
+=====================
 
 The LCD driver exposes the LCD interface to userspace via ``ioctl()`` commands.
 
@@ -23,7 +23,7 @@ In general, the binding sequence is:
 .. _genericlcdlcd:
 
 Generic LCD Character Driver
-------------------------
+----------------------------
 
 This example will walk through the path from userspace to hardware-specific details on how an LCD screen is bound to an LCD character driver.
 
@@ -46,7 +46,7 @@ Examples
 
 Examples apply to specific cases of the :ref:`genericlcdlcd`:
 
-.. _ttgotdisplayesp32:
+.. _ttgotdisplayesp32_lcd:
 
 TTGO T-Display ESP32 board
 ---------------------------
@@ -82,6 +82,7 @@ By selecting the ``ttgo_t_display_esp32:lvgl_lcd`` config, the ``lvgldemo`` exam
    * ``st7789_lcdinitialize`` is part of the LCD screen driver at ``drivers/lcd/st7789.c``;
 
 * The LVGL demo application (``lvgldemo``) makes use of the ``ioctl`` system call to trigger an ``LCDDEVIO_PUTAREA`` request to the higher-level device driver to refresh the LCD screen with data:
+
 .. code-block:: c
 
    ioctl(state.fd, LCDDEVIO_PUTAREA, (unsigned long)((uintptr_t)&lcd_area));;
@@ -93,7 +94,7 @@ NuttX Simulator
 
 By selecting the ``sim:lvgl_lcd`` config, the ``lvgldemo`` example will be built with the LCD character interface.
 
-* ``boards/sim/sim/sim/src/sim_bringup.c`` registers the framebuffer driver the same way :ref:`ttgotdisplayesp32`;
+* ``boards/sim/sim/sim/src/sim_bringup.c`` registers the lcd driver the same way :ref:`ttgotdisplayesp32_lcd`;
 * ``arch/sim/src/sim/up_lcd.c`` and ``arch/sim/src/sim/up_x11framebuffer.c`` will be built as ``CONFIG_SIM_LCDDRIVER = y`` and ``CONFIG_SIM_X11FB = y`` are set, respectively;
 
    * ``up_lcd.c`` provides ``board_lcd_initialize`` and ``board_lcd_getdev``:

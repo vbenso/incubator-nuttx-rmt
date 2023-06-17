@@ -29,10 +29,10 @@
 #include <nuttx/compiler.h>
 
 #ifdef CONFIG_ARCH_DEBUG_H
-# include <arch/debug.h>
+#  include <arch/debug.h>
 #endif
 #ifdef CONFIG_ARCH_CHIP_DEBUG_H
-# include <arch/chip/debug.h>
+#  include <arch/chip/debug.h>
 #endif
 
 #include <syslog.h>
@@ -78,7 +78,8 @@
  *    really intended only for crash error reporting.
  */
 
-#if !defined(EXTRA_FMT) && !defined(EXTRA_ARG) && defined(CONFIG_HAVE_FUNCTIONNAME)
+#if !defined(EXTRA_FMT) && !defined(EXTRA_ARG) && \
+    defined(CONFIG_HAVE_FUNCTIONNAME) && !defined(CONFIG_DEFAULT_SMALL)
 #  define EXTRA_FMT "%s: "
 #  define EXTRA_ARG ,__FUNCTION__
 #endif
@@ -790,6 +791,24 @@
 #  define vinfo       _none
 #endif
 
+#ifdef CONFIG_DEBUG_VIRTIO_ERROR
+#  define vrterr      _err
+#else
+#  define vrterr      _none
+#endif
+
+#ifdef CONFIG_DEBUG_VIRTIO_WARN
+#  define vrtwarn     _warn
+#else
+#  define vrtwarn     _none
+#endif
+
+#ifdef CONFIG_DEBUG_VIRTIO_INFO
+#  define vrtinfo     _info
+#else
+#  define vrtinfo     _none
+#endif
+
 /* Buffer dumping macros do not depend on varargs */
 
 #ifdef CONFIG_DEBUG_ERROR
@@ -797,12 +816,12 @@
 #  ifdef CONFIG_DEBUG_INFO
 #    define infodumpbuffer(m,b,n) lib_dumpbuffer(m,b,n)
 #  else
-#   define infodumpbuffer(m,b,n)
+#    define infodumpbuffer(m,b,n)
 #  endif
 #else
-#  define errdumpbuffer(m,b,n)
-#  define infodumpbuffer(m,b,n)
-# endif
+#    define errdumpbuffer(m,b,n)
+#    define infodumpbuffer(m,b,n)
+#  endif
 
 /* Subsystem specific debug */
 
@@ -1077,7 +1096,7 @@ extern "C"
 
 typedef CODE void (*lib_dump_handler_t)(FAR void *arg,
                                         FAR const char *fmt, ...)
-                  printflike(2, 3);
+                  printf_like(2, 3);
 
 /* Dump a buffer of data with handler */
 
@@ -1122,19 +1141,19 @@ void lib_dumpvfile(int fd, FAR const char *msg, FAR const struct iovec *iov,
 
 #ifndef CONFIG_CPP_HAVE_VARARGS
 #ifdef CONFIG_DEBUG_ALERT
-void _alert(const char *format, ...) sysloglike(1, 2);
+void _alert(FAR const char *format, ...) syslog_like(1, 2);
 #endif
 
 #ifdef CONFIG_DEBUG_ERROR
-void _err(const char *format, ...) sysloglike(1, 2);
+void _err(FAR const char *format, ...) syslog_like(1, 2);
 #endif
 
 #ifdef CONFIG_DEBUG_WARN
-void _warn(const char *format, ...) sysloglike(1, 2);
+void _warn(FAR const char *format, ...) syslog_like(1, 2);
 #endif
 
 #ifdef CONFIG_DEBUG_INFO
-void _info(const char *format, ...) sysloglike(1, 2);
+void _info(FAR const char *format, ...) syslog_like(1, 2);
 #endif
 #endif /* CONFIG_CPP_HAVE_VARARGS */
 
