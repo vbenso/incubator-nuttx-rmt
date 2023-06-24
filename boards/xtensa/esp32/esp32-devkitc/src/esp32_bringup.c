@@ -628,6 +628,14 @@ int esp32_bringup(void)
     }
 #endif
 
+#ifdef CONFIG_ESP32_RMT
+  ret = board_rmt_initialize(RMT_CHANNEL, RMT_OUTPUT_PIN);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: board_rmt_initialize() failed: %d\n", ret);
+    }
+#endif
+
 #ifdef CONFIG_RTC_DRIVER
   /* Instantiate the ESP32 RTC driver */
 
@@ -657,23 +665,6 @@ int esp32_bringup(void)
     {
       syslog(LOG_ERR, "Failed to initialize ws2812 driver\n");
     }
-#  else
-  struct rmt_dev_s *rmt_dev = esp32_rmtinitialize(
-    WS2812_RMT_OUTPUT_PIN, WS2812_RMT_CHANNEL);
-
-  if (rmt_dev)
-    {
-      ret = board_ws2812_initialize(0, CONFIG_WS2812_LED_COUNT, rmt_dev);
-      if (ret < 0)
-        {
-          syslog(LOG_ERR, "Failed to initialize ws2812 driver\n");
-        }
-    }
-  else
-    {
-      syslog(LOG_ERR, "Failed to initialize RMT driver\n");
-    }
-
 #  endif
 #endif
 

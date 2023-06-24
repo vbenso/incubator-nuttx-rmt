@@ -29,8 +29,6 @@
 #include <nuttx/compiler.h>
 #include <stdint.h>
 
-#include "esp32_rmt.h"
-
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -68,10 +66,10 @@
 #define ONESHOT_TIMER         1
 #define ONESHOT_RESOLUTION_US 1
 
-/* WS2812 using RMT */
+/* RMT gpio */
 
-#define WS2812_RMT_OUTPUT_PIN 4
-#define WS2812_RMT_CHANNEL    0
+#define RMT_OUTPUT_PIN 4
+#define RMT_CHANNEL    0
 
 /****************************************************************************
  * Public Types

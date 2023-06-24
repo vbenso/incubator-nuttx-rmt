@@ -31,6 +31,11 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
+/* RMT Peripheral constants */
+#define RMT_NUMBER_OF_CHANNELS      8
+#define RMT_DATA_BASE_ADDR          0x3ff56800
+#define RMT_DATA_MEMORY_BLOCK_WORDS 64
+
 /* RMT Channel configuration registers */
 
 #define RMT_CHNCONF_REG_BASE (DR_REG_RMT_BASE+0x20)
@@ -127,7 +132,7 @@
 #define RMT_IDLE_OUT_LV_CHN_V 0x00000001
 #define RMT_IDLE_OUT_LV_CHN_S 18
 
-/* RMT_REF_ALWAYS_ON_CHN This bit is used to select the channel’s base
+/* RMT_REF_ALWAYS_ON_CHN This bit is used to select the channel's base
  * clock. 1:clk_apb; 0:clk_ref. (R/W)
  */
 
@@ -155,7 +160,7 @@
 #define RMT_RX_FILTER_THRES_CHN_V 0x00000001
 #define RMT_RX_FILTER_THRES_CHN_S 8
 
-/* RMT_RX_FILTER_EN_CHN This is the receive filter’s enable-bit for channel
+/* RMT_RX_FILTER_EN_CHN This is the receive filter's enable-bit for channel
  * n. (R/W)
  */
 
@@ -174,7 +179,7 @@
 #define RMT_TX_CONTI_MODE_CHN_V 0x00000001
 #define RMT_TX_CONTI_MODE_CHN_S 6
 
-/* RMT_MEM_OWNER_CHN This bit marks channel n’s RAM block ownership.
+/* RMT_MEM_OWNER_CHN This bit marks channel n's RAM block ownership.
  * Number 1 indicates that the receiver is using the RAM, while 0 indicates
  * that the transmitter is using the RAM. (R/W)
  */
@@ -211,7 +216,7 @@
 
 /* RMT_TX_START_CHN Set this bit to start sending data on channel n. (R/W) */
 
-#define RMT_TX_START_CHN BIT(0)
+#define RMT_TX_START_CHN(n) BIT(n)
 #define RMT_TX_START_CHN_M (RMT_TX_START_CHN_V << RMT_TX_START_CHN_S)
 #define RMT_TX_START_CHN_V 0x00000001
 #define RMT_TX_START_CHN_S 0

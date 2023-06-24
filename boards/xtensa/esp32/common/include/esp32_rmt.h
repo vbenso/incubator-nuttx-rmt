@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32/esp32-devkitc/src/esp32_ws2812.c
+ * boards/xtensa/esp32/common/include/esp32_rmt.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -18,107 +18,50 @@
  *
  ****************************************************************************/
 
+#ifndef __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_RMT_H
+#define __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_RMT_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <errno.h>
-#include <debug.h>
-#include <stdio.h>
-
-#include "xtensa.h"
-
-#include <nuttx/kmalloc.h>
-#include <nuttx/spi/spi.h>
-#include <nuttx/leds/ws2812.h>
-
-#ifdef CONFIG_WS2812
-
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define APB_PERIOD (12.5)
-
-#define T0H ((uint16_t)(350 / APB_PERIOD))   // ns
-#define T0L ((uint16_t)(900 / APB_PERIOD))   // ns
-#define T1H ((uint16_t)(900 / APB_PERIOD))   // ns
-#define T1L ((uint16_t)(350 / APB_PERIOD))   // ns
-#define RES ((uint16_t)(60000 / APB_PERIOD)) // ns
-
 /****************************************************************************
- * Private Types
+ * Type Definitions
  ****************************************************************************/
 
 /****************************************************************************
- * Private Function Prototypes
- ****************************************************************************/
-
-/****************************************************************************
- * Private Data
+ * Public Types
  ****************************************************************************/
 
 /****************************************************************************
  * Public Data
  ****************************************************************************/
 
-/****************************************************************************
- * Private Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Public Functions
- ****************************************************************************/
-
-#  ifndef CONFIG_WS2812_NON_SPI_DRIVER
-/****************************************************************************
- * Name: board_ws2812_initialize
- *
- * Description:
- *   Initialize and register the WS2812 LED driver.
- *
- * Input Parameters:
- *   devno - The device number, used to build the device path as /dev/leddrvN
- *   spino - SPI port number
- *   nleds - number of LEDs
- *
- * Returned Value:
- *   Zero (OK) on success; a negated errno value on failure.
- *
- ****************************************************************************/
-
-int board_ws2812_initialize(int devno, int spino, uint16_t nleds)
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
 {
-  struct spi_dev_s *spi;
-  char devpath[13];
-  int ret;
-
-  spi = esp32_spibus_initialize(spino);
-  if (spi == NULL)
-    {
-      return -ENODEV;
-    }
-
-  /* Register the WS2812 driver at the specified location. */
-
-  snprintf(devpath, sizeof(devpath), "/dev/leds%d", devno);
-  ret = ws2812_leds_register(devpath, spi, nleds);
-  if (ret < 0)
-    {
-      lederr("ERROR: ws2812_leds_register(%s) failed: %d\n",
-             devpath, ret);
-      return ret;
-    }
-
-  return OK;
-}
-#  else
-int board_ws2812_initialize(int devno, int spino, uint16_t nleds)
-{
-  return -1;
-}
-#  endif
-
+#else
+#define EXTERN extern
 #endif
+
+/****************************************************************************
+ * Inline Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+#undef EXTERN
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* __BOARDS_XTENSA_ESP32_COMMON_INCLUDE_ESP32_RMT_H */

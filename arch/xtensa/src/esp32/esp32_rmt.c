@@ -75,12 +75,11 @@ IRAM_ATTR static int rmt_interrupt(int irq, void *context, void *arg);
 
 struct rmt_dev_s g_rmt_dev =
 {
-  .channel = 0,
   .periph  = ESP32_PERIPH_RMT,
   .irq     = ESP32_IRQ_RMT,
   .cpu     = 0,
   .cpuint  = -ENOMEM,
-  .lock    = SP_UNLOCKED
+  .lock    = 0
 };
 
 /****************************************************************************
@@ -110,7 +109,14 @@ static void rmt_reset(struct rmt_dev_s *dev)
 
   modifyreg32(DPORT_PERIP_RST_EN_REG, DPORT_RMT_RST, 1);
   modifyreg32(DPORT_PERIP_RST_EN_REG, DPORT_RMT_RST, 0);
-  putreg32(0xffffffff, RMT_INT_CLR_REG); /* Clear any spurious IRQ Flag */
+
+  /* Clear any spurious IRQ Flag   */
+
+  putreg32(0xffffffff, RMT_INT_CLR_REG);
+
+  /* Enable memory wrap-around */
+
+  modifyreg32(RMT_APB_CONF_REG, 0 , BIT(1));
 
   spin_unlock_irqrestore(&dev->lock, flags);
 }
@@ -181,6 +187,69 @@ static int rmt_setup(struct rmt_dev_s *dev)
 }
 
 /****************************************************************************
+ * Name: rmt_load_tx_buffer
+ *
+ * Description:
+ *   Copies chunks of data from the buffer to the RMT device memory
+ *   This function can also be called on the first transmition data chunk
+ *
+ * Input Parameters:
+ *   channel - Pointer to the channel to be reloaded
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+IRAM_ATTR void rmt_load_tx_buffer(struct rmt_dev_channel_s *channel)
+{
+  uint32_t *src = channel->src;
+  uint32_t dst_mem;
+  uint32_t buffer_size;
+
+  if (channel->src_offset == 0)
+    {
+      buffer_size = channel->available_words;
+      dst_mem = channel->start_address;
+      channel->next_buffer = 0;
+    }
+  else
+    {
+      buffer_size =  channel->reload_thresh;
+      dst_mem = channel->start_address +
+        4*channel->next_buffer*channel->reload_thresh;
+
+      /* only swap buffers after the first call */
+
+      if (channel->next_buffer == 0)
+        {
+          channel->next_buffer = 1;
+        }
+      else
+        {
+          channel->next_buffer = 0;
+        }
+    }
+
+  while (channel->src_offset < channel->words_to_send && buffer_size > 0)
+    {
+      uint32_t word_to_send = *(src + channel->src_offset);
+      putreg32(word_to_send, dst_mem);
+
+      channel->src_offset++;
+      dst_mem += 4;
+      buffer_size--;
+    }
+
+  /* Adding 0x00 on RMT's buffer marks the EOT */
+
+  if (channel->src_offset == channel->words_to_send && buffer_size > 0)
+    {
+      putreg32(0x00, dst_mem);
+    }
+}
+
+/****************************************************************************
  * Name: rmt_interrupt
  *
  * Description:
@@ -200,78 +269,60 @@ IRAM_ATTR static int rmt_interrupt(int irq, void *context, void *arg)
 {
   struct rmt_dev_s *dev = (struct rmt_dev_s *)arg;
   uint32_t regval = getreg32(RMT_INT_ST_REG);
-  uint32_t total_pixels;
-  uint32_t current_pixel;
-  uint32_t dst_mem;
-  uint32_t used_words;
-  uint8_t *pixel_ptr;
 
-  if (regval & RMT_CHN_TX_END_INT_ST(dev->channel))
+  uint8_t error_flag = 0;
+
+  int flags = spin_lock_irqsave(&dev->lock);
+
+  for (int ch_idx = 0; ch_idx < RMT_NUMBER_OF_CHANNELS; ch_idx++)
     {
-      putreg32(RMT_CHN_TX_END_INT_CLR(dev->channel), RMT_INT_CLR_REG);
-      modifyreg32(RMT_INT_ENA_REG, RMT_CHN_TX_END_INT_ENA(dev->channel), 0);
-      nxsem_post(&dev->tx_sem);
-    }
-  else if (regval & RMT_CHN_TX_THR_EVENT_INT_ST(dev->channel))
-    {
-      putreg32(RMT_CHN_TX_THR_EVENT_INT_CLR(dev->channel), RMT_INT_CLR_REG);
-      total_pixels = dev->data_len;
-      current_pixel = dev->next_pixel_to_load;
-      dst_mem = dev->start_address;
-      if (dev->frame++ == 1)
+      struct rmt_dev_channel_s *channel_data =
+        (struct rmt_dev_channel_s *) &(dev->channels[ch_idx]);
+
+      /* IRQs from channels with no pins, should be ignored */
+
+      if (channel_data->output_pin < 0)
         {
-          dst_mem += dev->reload_thresh * 4;
+          putreg32(RMT_CHN_TX_THR_EVENT_INT_CLR(ch_idx), RMT_INT_CLR_REG);
+          putreg32(RMT_CHN_TX_END_INT_CLR(ch_idx), RMT_INT_CLR_REG);
+          continue;
         }
 
-      if (dev->frame > 1)
+      if (regval & RMT_CHN_TX_THR_EVENT_INT_ST(ch_idx))
         {
-          dev->frame = 0;
+          putreg32(RMT_CHN_TX_THR_EVENT_INT_CLR(ch_idx), RMT_INT_CLR_REG);
+
+          /* buffer refill */
+
+          rmt_load_tx_buffer(channel_data);
         }
-
-      used_words = 0;
-      pixel_ptr = dev->data_ptr + current_pixel;
-
-      while (used_words < dev->reload_thresh)
+      else if (regval & RMT_CHN_TX_END_INT_ST(ch_idx))
         {
-          if (current_pixel < total_pixels)
-            {
-              register uint8_t pixel = (*pixel_ptr++);
-              for (register uint32_t i = 0; i < 8; i++)
-                {
-                  if (pixel & 0x80)
-                    {
-                      putreg32(dev->logic_one, dst_mem);
-                    }
-                  else
-                    {
-                      putreg32(dev->logic_zero, dst_mem);
-                    }
+          /* end of transmition */
 
-                  pixel <<= 1;
-                  dst_mem += 4;
-                }
+          modifyreg32(RMT_INT_ENA_REG,
+            RMT_CHN_TX_END_INT_ENA(ch_idx) |
+            RMT_CHN_TX_THR_EVENT_INT_ENA(ch_idx),
+            0
+          );
 
-              used_words += 8;
-              current_pixel++;
-            }
-          else
-            {
-              modifyreg32(RMT_INT_ENA_REG, 0,
-                RMT_CHN_TX_END_INT_ENA(dev->channel));
-              putreg32(0, dst_mem);
-              break;
-            }
+          putreg32(RMT_CHN_TX_END_INT_CLR(ch_idx), RMT_INT_CLR_REG);
+          putreg32(RMT_CHN_TX_THR_EVENT_INT_CLR(ch_idx), RMT_INT_CLR_REG);
+
+          /* release the lock so the write function can return */
+
+          nxsem_post(&channel_data->tx_sem);
         }
-
-      dev->next_pixel_to_load = current_pixel;
     }
-  else
+
+  if (error_flag)
     {
-      /* Perhaps an error, have no info on that */
+      /* clear any spurious IRQ flag */
 
-      putreg32(regval, RMT_INT_CLR_REG);
+      putreg32(0xffffffff, RMT_INT_CLR_REG);
     }
 
+  spin_unlock_irqrestore(&dev->lock, flags);
   return OK;
 }
 
@@ -286,37 +337,100 @@ IRAM_ATTR static int rmt_interrupt(int irq, void *context, void *arg)
  *   Initialize the selected RMT device
  *
  * Input Parameters:
- *   output_pin - the pin used for output
- *   channel    - the RMT's channel that will be used
  *
  * Returned Value:
  *   Valid RMT device structure reference on success; a NULL on failure
  *
  ****************************************************************************/
 
-struct rmt_dev_s *esp32_rmtinitialize(int output_pin, int channel)
+struct rmt_dev_s *esp32_rmtinitialize(void)
 {
   struct rmt_dev_s *rmtdev = &g_rmt_dev;
   irqstate_t flags;
-
-  rmtdev->channel = channel;
 
   flags = spin_lock_irqsave(&rmtdev->lock);
 
   modifyreg32(DPORT_PERIP_CLK_EN_REG, 0, DPORT_RMT_CLK_EN);
   modifyreg32(DPORT_PERIP_RST_EN_REG, DPORT_RMT_RST, 0);
 
-  /* Configure RMT GPIO pin */
-
-  esp32_gpio_matrix_out(output_pin, RMT_SIG_OUT0_IDX + channel, 0, 0);
-  esp32_configgpio(output_pin, OUTPUT_FUNCTION_1);
-
   spin_unlock_irqrestore(&rmtdev->lock, flags);
 
-  nxsem_init(&rmtdev->tx_sem, 0, 1);
   rmt_reset(rmtdev);
   rmt_setup(rmtdev);
 
+  rmtdev->channels = kmm_zalloc(
+    sizeof(struct rmt_dev_channel_s)*
+    RMT_NUMBER_OF_CHANNELS
+  );
+
+  if (!rmtdev->channels)
+    {
+      rmterr("Failed to allocate memory for RMT Channels");
+      return NULL;
+    }
+
+  for (int ch_idx = 0; ch_idx < RMT_NUMBER_OF_CHANNELS; ch_idx++)
+    {
+      struct rmt_dev_channel_s *channel_data =
+        (struct rmt_dev_channel_s *) &(rmtdev->channels[ch_idx]);
+
+      channel_data->open_count  = 0;
+      channel_data->ch_idx      = ch_idx;
+      channel_data->output_pin  = -1;
+
+      channel_data->available_words  = 64;
+      uint32_t start_addr_chn = RMT_DATA_BASE_ADDR +
+                                RMT_DATA_MEMORY_BLOCK_WORDS * 4 * ch_idx;
+
+      channel_data->start_address  = start_addr_chn;
+      channel_data->reload_thresh  = channel_data->available_words / 2;
+      channel_data->parent_dev     = rmtdev;
+    }
+
   return rmtdev;
 }
+
+/****************************************************************************
+ * Name: rmt_attach_pin_to_channel
+ *
+ * Description:
+ *   Binds a gpio pin to a RMT channel
+ *
+ * Input Parameters:
+ *   rmtdev     - pointer the rmt device, needed for the locks
+ *   output_pin - the pin used for output
+ *   channel    - the RMT's channel that will be used
+ *
+ * Returned Value:
+ *   Zero on success; a negated errno on failure
+ *
+ ****************************************************************************/
+
+int rmt_attach_pin_to_channel(struct rmt_dev_s *rmtdev, int ch_idx, int pin)
+{
+  irqstate_t flags;
+
+  if (ch_idx >= RMT_NUMBER_OF_CHANNELS || pin < 0)
+    {
+      return -EINVAL;
+    }
+
+  flags = spin_lock_irqsave(&rmtdev->lock);
+
+  struct rmt_dev_channel_s *channel_data =
+    (struct rmt_dev_channel_s *) &(rmtdev->channels[ch_idx]);
+
+  channel_data->output_pin = pin;
+  nxsem_init(&channel_data->tx_sem, 0, 1);
+
+  /* Configure RMT GPIO pin */
+
+  esp32_gpio_matrix_out(pin, RMT_SIG_OUT0_IDX + ch_idx, 0, 0);
+  esp32_configgpio(pin, OUTPUT_FUNCTION_1);
+
+  spin_unlock_irqrestore(&rmtdev->lock, flags);
+
+  return OK;
+}
+
 #endif
