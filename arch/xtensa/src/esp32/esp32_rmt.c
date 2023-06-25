@@ -148,7 +148,7 @@ static int rmt_setup(struct rmt_dev_s *dev)
     {
       /* Disable the provided CPU Interrupt to configure it. */
 
-      up_disable_irq(dev->cpuint);
+      up_disable_irq(dev->irq);
     }
 
   dev->cpu = up_cpu_index();
@@ -230,21 +230,42 @@ IRAM_ATTR void rmt_load_tx_buffer(struct rmt_dev_channel_s *channel)
           channel->next_buffer = 0;
         }
     }
+  size_t words_to_write = channel->words_to_send - channel->src_offset;
 
-  while (channel->src_offset < channel->words_to_send && buffer_size > 0)
+  if (words_to_write > 0)
+  {
+    if (words_to_write > buffer_size)
     {
-      uint32_t word_to_send = *(src + channel->src_offset);
-      putreg32(word_to_send, dst_mem);
-
-      channel->src_offset++;
-      dst_mem += 4;
-      buffer_size--;
+      words_to_write = buffer_size;
     }
+#ifndef CONFIG_ESP32_RMT_USE_LOOP
+    memcpy((uint8_t*)dst_mem, src+channel->src_offset, words_to_write*4);
+    buffer_size -= words_to_write;
+    channel->src_offset += words_to_write;
+    dst_mem += words_to_write*4;
+#else    
+    while (buffer_size > 0)
+      {
+        uint32_t word_to_send = *(src + channel->src_offset);
+        putreg32(word_to_send, dst_mem);
+        channel->src_offset++;
+        dst_mem += 4;
+        buffer_size--;
+      }
+#endif    
+  }
+  
 
   /* Adding 0x00 on RMT's buffer marks the EOT */
 
   if (channel->src_offset == channel->words_to_send && buffer_size > 0)
     {
+      /* disable THR_EVENT */
+      modifyreg32(RMT_INT_ENA_REG,
+            RMT_CHN_TX_THR_EVENT_INT_ENA(channel->ch_idx),
+            0
+          );
+      
       putreg32(0x00, dst_mem);
     }
 }
@@ -272,7 +293,7 @@ IRAM_ATTR static int rmt_interrupt(int irq, void *context, void *arg)
 
   uint8_t error_flag = 0;
 
-  int flags = spin_lock_irqsave(&dev->lock);
+  irqstate_t flags = spin_lock_irqsave(&dev->lock);
 
   for (int ch_idx = 0; ch_idx < RMT_NUMBER_OF_CHANNELS; ch_idx++)
     {
@@ -281,48 +302,45 @@ IRAM_ATTR static int rmt_interrupt(int irq, void *context, void *arg)
 
       /* IRQs from channels with no pins, should be ignored */
 
-      if (channel_data->output_pin < 0)
+      if ( channel_data->output_pin >= 0 )
         {
-          putreg32(RMT_CHN_TX_THR_EVENT_INT_CLR(ch_idx), RMT_INT_CLR_REG);
-          putreg32(RMT_CHN_TX_END_INT_CLR(ch_idx), RMT_INT_CLR_REG);
-          continue;
-        }
+          if (regval & RMT_CHN_TX_THR_EVENT_INT_ST(ch_idx))
+            {
+              putreg32(RMT_CHN_TX_THR_EVENT_INT_CLR(ch_idx), RMT_INT_CLR_REG);
 
-      if (regval & RMT_CHN_TX_THR_EVENT_INT_ST(ch_idx))
-        {
-          putreg32(RMT_CHN_TX_THR_EVENT_INT_CLR(ch_idx), RMT_INT_CLR_REG);
+              /* buffer refill */
 
-          /* buffer refill */
+              rmt_load_tx_buffer(channel_data);
+            }
+          else if (regval & RMT_CHN_TX_END_INT_ST(ch_idx))
+            {
+              /* end of transmition */
 
-          rmt_load_tx_buffer(channel_data);
-        }
-      else if (regval & RMT_CHN_TX_END_INT_ST(ch_idx))
-        {
-          /* end of transmition */
+              modifyreg32(RMT_INT_ENA_REG,
+                RMT_CHN_TX_END_INT_ENA(ch_idx) |
+                RMT_CHN_TX_THR_EVENT_INT_ENA(ch_idx),
+                0
+              );
 
-          modifyreg32(RMT_INT_ENA_REG,
-            RMT_CHN_TX_END_INT_ENA(ch_idx) |
-            RMT_CHN_TX_THR_EVENT_INT_ENA(ch_idx),
-            0
-          );
+              putreg32(RMT_CHN_TX_END_INT_CLR(ch_idx), RMT_INT_CLR_REG);
+              putreg32(RMT_CHN_TX_THR_EVENT_INT_CLR(ch_idx), RMT_INT_CLR_REG);
 
-          putreg32(RMT_CHN_TX_END_INT_CLR(ch_idx), RMT_INT_CLR_REG);
-          putreg32(RMT_CHN_TX_THR_EVENT_INT_CLR(ch_idx), RMT_INT_CLR_REG);
+              /* release the lock so the write function can return */
 
-          /* release the lock so the write function can return */
-
-          nxsem_post(&channel_data->tx_sem);
+              nxsem_post(&channel_data->tx_sem);
+            }
         }
     }
 
   if (error_flag)
     {
       /* clear any spurious IRQ flag */
-
+      
       putreg32(0xffffffff, RMT_INT_CLR_REG);
     }
 
   spin_unlock_irqrestore(&dev->lock, flags);
+
   return OK;
 }
 

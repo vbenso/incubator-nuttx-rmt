@@ -180,7 +180,7 @@ static ssize_t rmt_write(FAR struct file *filep,
     }
   
     
-  flags = spin_lock_irqsave(&parent_dev->lock);
+  //flags = spin_lock_irqsave(&parent_dev->lock);
   
   /* set RMT's memory as writable */
 
@@ -205,7 +205,7 @@ static ssize_t rmt_write(FAR struct file *filep,
 
   modifyreg32(reg1_addr, 0, RMT_TX_START_CHN(dev_data->ch_idx));
   
-  spin_unlock_irqrestore(&parent_dev->lock, flags);
+  //spin_unlock_irqrestore(&parent_dev->lock, flags);
   
   /* wait for the transmition to finish */
   nxsem_wait(&dev_data->tx_sem);
